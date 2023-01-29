@@ -1,3 +1,6 @@
 [submodule "lib/ArduinoJson"]
 	path = lib/ArduinoJson
 	url = https://github.com/bblanchon/ArduinoJson
+[submodule "lib/Streaming"]
+	path = lib/Streaming
+	url = https://github.com/janelia-arduino/Streaming
