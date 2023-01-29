@@ -1,188 +1,112 @@
 /*
- * Heat Regulated Box 
- * 
+ * @file main.cpp
+ *
  * This code works as a controller for box that is to keep its internal
  * temperature stable.
- * 
- * Author:        Hans Rasmussen
- * E-Mail:        angdeclo@gmail.com
- * Creation Date: 09/Oct/2020
+ *
+ * @author Hans V. Rasmussen <angdeclo@gmail.com>
  */
-
 
 
 // ##########################################
 // ##              Includes                ##
 // ##########################################
+
 #include <Arduino.h>
 #include <OneWire.h>
-#include <DallasTemperature.h>
-#include "ArduinoJson.h"
+#include <ArduinoJson.h>
 
+#include "config.h"
+#include "sensor_util.h"
 
-
-// ##########################################
-// ##               Settings               ##
-// ##########################################
-/*
- * This section defines the settings for the program, such as pin numbers and
- * operation modi.
- * For tuning the device, one would change DESIRED_TEMPERATURE and 
- * TEMPERATURE_DEVIATION. As the heating element is rather quick to heat up 
- * but needs a lot of time to cool down, the TEMPERATURE_OFFSET should be set 
- * to the difference between the wanted value and average measured value.
- * If the measured value is lower than the wanted, then TEMPERATURE_OFFSET 
- * needs to be positive.
-*/
-
-// Desired temperature in degrees celsius.
-const double DESIRED_TEMPERATURE = 27;
-
-// How much deviation (+-DESIRED_TEMPERATURE) is allowed before correcting.
-const double TEMPERATURE_DEVIATION = 0.2;
-
-// Offset from the desired temperature and average measured temperature, 
-// found by using the Graph_Plotter.py
-const double TEMPERATURE_OFFSET = -0.4;
-
-// Pin for onewire interface. The sensors are installed in series running 
-// without parasitic power.
-#define ONE_WIRE_BUS 10
-
-// Precision of the temperature sensor
-// 09 equals a precision of 0.5C and measurement time <93.75ms
-// 10 equals a precision of 0.25C and measurement time <187.5ms
-// 11 equals a precision of 0.125C and measurement time <375ms
-// 12 equals a precision of 0.0625C and measurement time <750ms
-#define TEMPERATURE_PRECISION 12
-
-// Pin on which to run the PWM for the motor controller in charge of the fan. 
-// The H-bridge is hard-wired.
-#define FAN_PWM 9
-
-// Pin controlling the relay in charge of the heating element.
-#define HEAT_RELAY_PIN 11
 
 
 // ##########################################
 // ##   Objects and Function Declaraions   ##
 // ##########################################
 
-// Onewire initialization and sensor setup
-OneWire oneWire(10);  // on pin 10 (a 4.7K pull-up resistor is necessary)
-DallasTemperature sensors(&oneWire);
-
-// Addresses for the sensors
-DeviceAddress sensor0 = {0x28, 0x69, 0xA1, 0x69, 0x35, 0x19, 0x01, 0x5D};
-DeviceAddress sensor1 = {0x28, 0xD5, 0x55, 0x6B, 0x35, 0x19, 0x01, 0x99};
-DeviceAddress sensor2 = {0x28, 0x96, 0x5F, 0xE3, 0x22, 0x20, 0x01, 0x62};
-
 // Function that takes over the main loop and gives full control of the device.
-void debugMode();
+void debugMode(SensorUtil *sensors, DeviceAddress devices[], uint8_t dev_elements);
 
-// Function to read out onewire addresses 
-void printAddress(DeviceAddress deviceAddress);
-
-// Function to print the temperature for a onewire device
-void printTemperature(DeviceAddress deviceAddress);
-
-// Function to print the address and temperature for a onewire device
-void printData(DeviceAddress deviceAddress);
-
-// Function which searches the OneWire bus and prints results
-uint8_t findDevices(int pin);
-
-
-
-// ##########################################
-// ##           Global Variables           ##
-// ##########################################
-/*
- * This section contains the global variables. It would be a good idea to 
- * change these global variables to local ones in the future, but they're 
- * here now.
-*/
-
-bool relay_state = false;   // Bool which saves the current state of the relay, 
-                            // mostly for logging purposes.
-uint8_t fan_value = 220;    // Value to be used when changin the fan speed, 
-                            // as it makes sure the correct value is logged later.
-const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
 
 
 // ##########################################
 // ##                Setup                 ##
 // ##########################################
-void setup()
+
+int main()
 {
-    // Initializations //
+    // ==== Serial ====
+    Serial.begin(115200);
+    Serial.print("Serial initialized!\n\n");
+    
+
+    // ==== Local Variables ====
+    bool relay_state = false;   // Bool which saves the current state of the relay, 
+                                // mostly for logging purposes.
+    uint8_t fan_value = 220;    // Value to be used when changin the fan speed, 
+                                // as it makes sure the correct value is logged later.
+    const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
+
+    // Onewire initialization
+    OneWire oneWire(10);  // on pin 10 (a 4.7K pull-up resistor is necessary)
 
     // Delay to allow us to turn on any logging scripts that we might have.
     delay(5000);
 
-    // ==== Serial ====
-    Serial.begin(115200);
-    Serial.print("Serial initialized!\n\n");
-
 
     // ==== OneWire sensors ====
     Serial.print("Initializing OneWire sensors...\n");
+    SensorUtil sensors(&oneWire);
     sensors.begin();
 
-    // locate devices on the bus
-    Serial.print("Locating devices...");
-    Serial.print("Found ");
-    Serial.print(sensors.getDeviceCount(), DEC);
-    Serial.println(" devices.");
-    Serial.println();
-
-    // report parasite power requirements
-    Serial.print("Parasitic power is ");
-    if (sensors.isParasitePowerMode())
+    struct
     {
-      Serial.println("ON");
-    }
-    else 
-    {
-      Serial.println("OFF");
-    }
+        DeviceAddress inLower = SENSOR_INSIDE_LOWER;
+        DeviceAddress inHigher = SENSOR_INSIDE_HIGHER;
+        DeviceAddress outRef = SENSOR_OUTSIDE;
+    } sensor;
 
-    // show the addresses we found on the bus
+    // Printing a short description of our sensors
     Serial.print("Device 0 Address: ");
-    printAddress(sensor0);
+    sensors.printAddress(sensor.inLower);
     Serial.println();
     Serial.println("Device 0 Description: Inside, low");
 
     Serial.print("Device 1 Address: ");
-    printAddress(sensor1);
+    sensors.printAddress(sensor.inHigher);
     Serial.println();
     Serial.println("Device 1 Description: Inside, high");
 
     Serial.print("Device 2 Address: ");
-    printAddress(sensor2);
+    sensors.printAddress(sensor.outRef);
     Serial.println();
     Serial.println("Device 2 Description: Outside, reference");
     Serial.println();
 
-    // set the resolution to 12 bit per device, this results in <750ms reading time per sensor with resolution 0.0625C
-    sensors.setResolution(sensor0, TEMPERATURE_PRECISION);
-    sensors.setResolution(sensor1, TEMPERATURE_PRECISION);
-    sensors.setResolution(sensor2, TEMPERATURE_PRECISION);
+    // set the resolution to 12 bit per device.
+    // This results in <750ms reading time per sensor with 
+    // a resolution of 0.0625 degrees Celcius.
+    sensors.setResolution(sensor.inLower, TEMPERATURE_PRECISION);
+    sensors.setResolution(sensor.inHigher, TEMPERATURE_PRECISION);
+    sensors.setResolution(sensor.outRef, TEMPERATURE_PRECISION);
     Serial.println();
 
     Serial.print("Device 0 Resolution: ");
-    Serial.print(sensors.getResolution(sensor0), DEC);
+    Serial.print(sensors.getResolution(sensor.inLower), DEC);
     Serial.println();
 
     Serial.print("Device 1 Resolution: ");
-    Serial.print(sensors.getResolution(sensor1), DEC);
+    Serial.print(sensors.getResolution(sensor.inHigher), DEC);
     Serial.println();
 
     Serial.print("Device 2 Resolution: ");
-    Serial.print(sensors.getResolution(sensor2), DEC);
+    Serial.print(sensors.getResolution(sensor.outRef), DEC);
     Serial.println();
+
     Serial.println("OneWire sensors initialized!");
     Serial.println();
+
 
     // ==== Fan Control ====
     // Initialize PWM pin as PWM output
@@ -200,72 +124,74 @@ void setup()
     // Turn on the fan. For now we'll just keep it constant.
     analogWrite(FAN_PWM, fan_value);
 
-}
 
 
 // ##########################################
 // ##                 Main                 ##
 // ##########################################
-void loop()
-{
-    // Check if the user wants to enter debugmode
-    if (Serial.available() > 0)
-    {
-      debugMode();
-    }
 
-    // Read all the sensors, and find the mean of the inside sensors.
-    sensors.requestTemperatures();
-    float tempC_S0 = sensors.getTempC(sensor0);
-    float tempC_S1 = sensors.getTempC(sensor1);
-    float tempC_S2 = sensors.getTempC(sensor2);
-    float tempC_mean = ((tempC_S0+tempC_S1)/2);
-    
-    // This is the actual control algorithm. 
-    // For now it simply turns the heating element on when the temperature falls below a deviation defined by the user, 
-    // and turns it off again once it surpasses this same deviation
-    if (tempC_mean <= (temperature_setpoint - TEMPERATURE_DEVIATION))
+    while(1)
     {
-      digitalWrite(HEAT_RELAY_PIN, HIGH);
-      relay_state = true;
-    }
-    else if (tempC_mean >= (temperature_setpoint + TEMPERATURE_DEVIATION))
-    {
-      digitalWrite(HEAT_RELAY_PIN, LOW);
-      relay_state = false;
-    }
+        // Check if the user wants to enter debugmode
+        if (Serial.available() > 0)
+        {
+            DeviceAddress devices[] = { *sensor.inLower, *sensor.inHigher, *sensor.outRef};
+            debugMode(&sensors, devices, 3);
+        }
 
-    // Debugging and logging - Creates a JSON document and sends it over Serial
-    // This piece of code is mostly autogenerated using the ArduinoJson Assistant: https://arduinojson.org/v6/assistant/
-    // The following piece of JSON is used in step 2:
-    /*
-    {
-    "ms": 1000000,
-    "sensors": [
-    {
-      "sensor01": 00.000,
-      "sensor02": 00.000,
-      "sensor03": 00.000
-    }
-    ],
-    "sensorMean": 00.000,
-    "fan": 255,
-    "heatingElement": 0
-    }
-    */
-    StaticJsonDocument<96> doc;
+        // Read all the sensors, and find the mean of the inside sensors.
+        sensors.requestTemperatures();
+        float tempC_S0 = sensors.getTempC(sensor.inLower);
+        float tempC_S1 = sensors.getTempC(sensor.inHigher);
+        float tempC_S2 = sensors.getTempC(sensor.outRef);
+        float tempC_mean = ((tempC_S0+tempC_S1)/2);
+        
+        // This is the actual control algorithm. 
+        // For now it simply turns the heating element on when the temperature falls below a deviation defined by the user, 
+        // and turns it off again once it surpasses this same deviation
+        if (tempC_mean <= (temperature_setpoint - TEMPERATURE_DEVIATION))
+        {
+        digitalWrite(HEAT_RELAY_PIN, HIGH);
+        relay_state = true;
+        }
+        else if (tempC_mean >= (temperature_setpoint + TEMPERATURE_DEVIATION))
+        {
+        digitalWrite(HEAT_RELAY_PIN, LOW);
+        relay_state = false;
+        }
 
-    doc["ms"] = millis();
-    JsonObject sensors_0 = doc["sensors"].createNestedObject();
-    sensors_0["sensor00"] = tempC_S0;
-    sensors_0["sensor01"] = tempC_S1;
-    sensors_0["sensor02"] = tempC_S2;
-    doc["sensorMean"] = tempC_mean;
-    doc["fan"] = fan_value;
-    doc["heatingElement"] = relay_state;
+        // Debugging and logging - Creates a JSON document and sends it over Serial
+        // This piece of code is mostly autogenerated using the ArduinoJson Assistant: https://arduinojson.org/v6/assistant/
+        // The following piece of JSON is used in step 2:
+        /*
+        {
+        "ms": 1000000,
+        "sensors": [
+        {
+        "sensor01": 00.000,
+        "sensor02": 00.000,
+        "sensor03": 00.000
+        }
+        ],
+        "sensorMean": 00.000,
+        "fan": 255,
+        "heatingElement": 0
+        }
+        */
+        StaticJsonDocument<96> doc;
 
-    serializeJson(doc, Serial);
-    Serial.println();
+        doc["ms"] = millis();
+        JsonObject sensors_0 = doc["sensors"].createNestedObject();
+        sensors_0["sensor00"] = tempC_S0;
+        sensors_0["sensor01"] = tempC_S1;
+        sensors_0["sensor02"] = tempC_S2;
+        doc["sensorMean"] = tempC_mean;
+        doc["fan"] = fan_value;
+        doc["heatingElement"] = relay_state;
+
+        serializeJson(doc, Serial);
+        Serial.println();
+    }
 }
 
 
@@ -275,7 +201,7 @@ void loop()
 // ##########################################
 
 // Function that takes over the main loop and gives full control of the device.
-void debugMode()
+void debugMode(SensorUtil *sensors, DeviceAddress devices[], uint8_t dev_elements)
 {
     int debugmode_enabled = true;
     char rx_byte = 0;
@@ -318,10 +244,11 @@ void debugMode()
                 bool read_temp = 1;
                 while (read_temp)
                 {
-                    sensors.requestTemperatures();
-                    printData(sensor0);
-                    printData(sensor1);
-                    printData(sensor2);
+                    sensors->requestTemperatures();
+                    for (uint8_t i = 0; i < dev_elements; i++)
+                    {
+                        sensors->printData(devices[i]);
+                    }
                     Serial.println();
 
                     // Checks for a character so that we can break free of this while loop
@@ -377,7 +304,7 @@ void debugMode()
             }
             else if (rx_byte == '5')
             {
-                findDevices(ONE_WIRE_BUS);
+                sensors->findDevices(ONE_WIRE_BUS);
                 Serial.println("\n//\n// End oneWireSearch.ino //");
                 Serial.println();
             }
@@ -392,78 +319,4 @@ void debugMode()
         }
     }
 
-}
-
-
-// function to print a device address
-void printAddress(DeviceAddress deviceAddress)
-{
-    for (uint8_t i = 0; i < 8; i++)
-    {
-        if (deviceAddress[i] < 16) Serial.print("0");
-        Serial.print(deviceAddress[i], HEX);
-        Serial.print(" ");
-    }
-  }
-
-
-// function to print the temperature for a device
-void printTemperature(DeviceAddress deviceAddress)
-{
-    float tempC = sensors.getTempC(deviceAddress);
-    if(tempC == DEVICE_DISCONNECTED_C) 
-    {
-        Serial.println("Error: Could not read temperature data");
-        return;
-    }
-    Serial.print("Temp C: ");
-    Serial.print(tempC);
-    Serial.print(" Temp F: ");
-    Serial.print(DallasTemperature::toFahrenheit(tempC));
-}
-
-
-// main function to print information about a device
-void printData(DeviceAddress deviceAddress)
-{
-    Serial.print("Device Address: ");
-    printAddress(deviceAddress);
-    Serial.print(" ");
-    printTemperature(deviceAddress);
-    Serial.println();
-}
-
-
-// Function which searches the OneWire bus and prints results
-uint8_t findDevices(int pin)
-{
-    OneWire ow(pin);
-
-    uint8_t address[8];
-    uint8_t count = 0;
-
-
-    if (ow.search(address))
-    {
-        Serial.print("\nuint8_t pin");
-        Serial.print(pin, DEC);
-        Serial.println("[][8] = {");
-        do {
-            count++;
-            Serial.println("  {");
-            for (uint8_t i = 0; i < 8; i++)
-            {
-                Serial.print("0x");
-                if (address[i] < 0x10) Serial.print("0");
-                Serial.print(address[i], HEX);
-                if (i < 7) Serial.print(", ");
-            }
-            Serial.println("  },");
-        } while (ow.search(address));
-
-        Serial.println("};");
-        Serial.print("// nr devices found: ");
-        Serial.println(count);
-    }
-    return count;
 }
