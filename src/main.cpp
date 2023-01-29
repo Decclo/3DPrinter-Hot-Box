@@ -15,6 +15,7 @@
 #include <Arduino.h>
 #include <OneWire.h>
 #include <ArduinoJson.h>
+#include <Streaming.h>
 
 #include "config.h"
 #include "sensor_util.h"
@@ -34,11 +35,40 @@ void debugMode(SensorUtil *sensors, DeviceAddress devices[], uint8_t dev_element
 // ##                Setup                 ##
 // ##########################################
 
-int main()
+// =========== 
+// Reconstructing main as found in 
+// https://github.com/arduino/ArduinoCore-avr/blob/master/cores/arduino/main.cpp
+// ===========
+
+// Declared weak in Arduino.h to allow user redefinitions.
+int atexit(void (* /*func*/ )()) { return 0; }
+
+// Weak empty variant initialization function.
+// May be redefined by variant files.
+void initVariant() __attribute__((weak));
+void initVariant() { }
+
+void setupUSB() __attribute__((weak));
+void setupUSB() { }
+
+int main(void)
 {
+	init();
+
+	initVariant();
+
+#if defined(USBCON)
+	USBDevice.attach();
+#endif
+
+// =========== 
+// End of main reconstruction.
+// ===========
+
+
     // ==== Serial ====
     Serial.begin(115200);
-    Serial.print("Serial initialized!\n\n");
+    Serial << "\nSerial initialized!\n\n\n";
     
 
     // ==== Local Variables ====
@@ -49,14 +79,14 @@ int main()
     const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
 
     // Onewire initialization
-    OneWire oneWire(10);  // on pin 10 (a 4.7K pull-up resistor is necessary)
+    OneWire oneWire(10);  // on pin 10 (a 4.7K pull-up resistor is necessary).
 
     // Delay to allow us to turn on any logging scripts that we might have.
     delay(5000);
 
 
     // ==== OneWire sensors ====
-    Serial.print("Initializing OneWire sensors...\n");
+    Serial << "Initializing OneWire sensors...\n";
     SensorUtil sensors(&oneWire);
     sensors.begin();
 
@@ -67,22 +97,18 @@ int main()
         DeviceAddress outRef = SENSOR_OUTSIDE;
     } sensor;
 
-    // Printing a short description of our sensors
-    Serial.print("Device 0 Address: ");
+    // Printing a short description of our sensors.
+    Serial << "Device 0 Address: ";
     sensors.printAddress(sensor.inLower);
-    Serial.println();
-    Serial.println("Device 0 Description: Inside, low");
+    Serial << "\nDevice 0 Description: Inside, low\n\n";
 
-    Serial.print("Device 1 Address: ");
+    Serial << "Device 1 Address: ";
     sensors.printAddress(sensor.inHigher);
-    Serial.println();
-    Serial.println("Device 1 Description: Inside, high");
+    Serial << "\nDevice 1 Description: Inside, High\n\n";
 
-    Serial.print("Device 2 Address: ");
+    Serial << "Device 2 Address: ";
     sensors.printAddress(sensor.outRef);
-    Serial.println();
-    Serial.println("Device 2 Description: Outside, reference");
-    Serial.println();
+    Serial << "\nDevice 2 Description: Outside, Reference\n\n\n";
 
     // set the resolution to 12 bit per device.
     // This results in <750ms reading time per sensor with 
@@ -90,35 +116,27 @@ int main()
     sensors.setResolution(sensor.inLower, TEMPERATURE_PRECISION);
     sensors.setResolution(sensor.inHigher, TEMPERATURE_PRECISION);
     sensors.setResolution(sensor.outRef, TEMPERATURE_PRECISION);
-    Serial.println();
 
-    Serial.print("Device 0 Resolution: ");
-    Serial.print(sensors.getResolution(sensor.inLower), DEC);
-    Serial.println();
-
-    Serial.print("Device 1 Resolution: ");
-    Serial.print(sensors.getResolution(sensor.inHigher), DEC);
-    Serial.println();
-
-    Serial.print("Device 2 Resolution: ");
-    Serial.print(sensors.getResolution(sensor.outRef), DEC);
-    Serial.println();
-
-    Serial.println("OneWire sensors initialized!");
-    Serial.println();
+    Serial << "Device 0 Resolution: " << 
+            sensors.getResolution(sensor.inLower) << endl;
+    Serial << "Device 1 Resolution: " << 
+            sensors.getResolution(sensor.inHigher) << endl;
+    Serial << "Device 2 Resolution: " << 
+            sensors.getResolution(sensor.outRef) << endl;
+    Serial << "OneWire sensors initialized!" << "\n\n";
 
 
     // ==== Fan Control ====
-    // Initialize PWM pin as PWM output
+    // Initialize PWM pin as PWM output.
     pinMode(FAN_PWM, OUTPUT);
 
     // ==== Heat Relay Control ====
-    // Initialize IO pin as output
+    // Initialize IO pin as output.
     pinMode(HEAT_RELAY_PIN, OUTPUT);
 
-    // Give advice on how to enter debugging more, and wait a second so the user will have chance to read it.
-    Serial.println("For debugMode please press anykey.");
-    Serial.println();
+    // Give advice on how to enter debugging more, and wait a second so the 
+    // user will have chance to read it.
+    Serial << "For debugMode please press anykey.\n\n\n";
     delay(1000);
 
     // Turn on the fan. For now we'll just keep it constant.
@@ -127,15 +145,16 @@ int main()
 
 
 // ##########################################
-// ##                 Main                 ##
+// ##              Main Loop               ##
 // ##########################################
 
-    while(1)
+	for (;;)
     {
-        // Check if the user wants to enter debugmode
+        // Check if the user wants to enter debugmode.
         if (Serial.available() > 0)
         {
-            DeviceAddress devices[] = { *sensor.inLower, *sensor.inHigher, *sensor.outRef};
+            DeviceAddress devices[] = { *sensor.inLower, *sensor.inHigher, 
+                                        *sensor.outRef};
             debugMode(&sensors, devices, 3);
         }
 
@@ -147,8 +166,9 @@ int main()
         float tempC_mean = ((tempC_S0+tempC_S1)/2);
         
         // This is the actual control algorithm. 
-        // For now it simply turns the heating element on when the temperature falls below a deviation defined by the user, 
-        // and turns it off again once it surpasses this same deviation
+        // For now it simply turns the heating element on when the temperature.
+        // falls below a deviation defined by the user, 
+        // and turns it off again once it surpasses this same deviation.
         if (tempC_mean <= (temperature_setpoint - TEMPERATURE_DEVIATION))
         {
         digitalWrite(HEAT_RELAY_PIN, HIGH);
@@ -160,8 +180,9 @@ int main()
         relay_state = false;
         }
 
-        // Debugging and logging - Creates a JSON document and sends it over Serial
-        // This piece of code is mostly autogenerated using the ArduinoJson Assistant: https://arduinojson.org/v6/assistant/
+        // Debugging and logging - Creates a JSON document and sends it over Serial.
+        // This piece of code is mostly autogenerated using the ArduinoJson 
+        // Assistant: https://arduinojson.org/v6/assistant/
         // The following piece of JSON is used in step 2:
         /*
         {
@@ -191,7 +212,12 @@ int main()
 
         serializeJson(doc, Serial);
         Serial.println();
+
+        // From 
+        // https://github.com/arduino/ArduinoCore-avr/blob/master/cores/arduino/main.cpp
+		if (serialEventRun) serialEventRun();
     }
+    return 0;
 }
 
 
@@ -230,7 +256,8 @@ void debugMode(SensorUtil *sensors, DeviceAddress devices[], uint8_t dev_element
             delay(100);
         }
 
-        // Once the user has sent a command, read and save it. This does not actually need an if-stament, but I like making safeties.
+        // Once the user has sent a command, read and save it. This does not 
+        // actually need an if-stament, but I like making safeties.
         if (Serial.available() > 0)     // is a character available?
         {    
             rx_byte = Serial.read();      // get the character
@@ -240,7 +267,7 @@ void debugMode(SensorUtil *sensors, DeviceAddress devices[], uint8_t dev_element
             // check whether the recieved byte was valid, and execute the command
             if (rx_byte == '1')
             {
-                Serial.println("\nReading temperature sensors. Press anykey to return.");
+                Serial << "\nReading temperature sensors. Press anykey to return.";
                 bool read_temp = 1;
                 while (read_temp)
                 {
@@ -251,11 +278,12 @@ void debugMode(SensorUtil *sensors, DeviceAddress devices[], uint8_t dev_element
                     }
                     Serial.println();
 
-                    // Checks for a character so that we can break free of this while loop
+                    // Checks for a character so that we can break free of this 
+                    // while loop
                     char rx_byte_alt = 0;
                     if (Serial.available() > 0)         // is a character available?
                     {    
-                        rx_byte_alt = Serial.read();      // get the character
+                        rx_byte_alt = Serial.read();    // get the character
                         read_temp = 0;
                     }
                 }
@@ -272,7 +300,7 @@ void debugMode(SensorUtil *sensors, DeviceAddress devices[], uint8_t dev_element
                 {
                     if (Serial.available() > 0)         // is a character available?
                     {    
-                        rx_byte_alt = Serial.read();      // get the character
+                        rx_byte_alt = Serial.read();    // get the character
                         
                         if (rx_byte_alt != '\n') 
                         {
