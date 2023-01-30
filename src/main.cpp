@@ -72,11 +72,9 @@ int main(void)
     
 
     // ==== Local Variables ====
-    bool relay_state = false;   // Bool which saves the current state of the relay, 
-                                // mostly for logging purposes.
-    uint8_t fan_value = 220;    // Value to be used when changin the fan speed, 
-                                // as it makes sure the correct value is logged later.
-    const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
+    bool relay_state = false;   // Bool which saves the current state of the relay.
+    uint8_t fan_value = 220;    // Fan speed from 100 to 255. <100 is off.
+    //const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
 
     // Onewire initialization
     OneWire oneWire(10);  // on pin 10 (a 4.7K pull-up resistor is necessary).
@@ -123,8 +121,12 @@ int main(void)
             sensors.getResolution(sensor.inHigher) << endl;
     Serial << "Device 2 Resolution: " << 
             sensors.getResolution(sensor.outRef) << endl;
+
     Serial << "OneWire sensors initialized!" << "\n\n";
 
+    // ==== Exponential moving average setup ====
+    float tempC_avg = ((sensors.getTempC(sensor.inLower)
+                    + sensors.getTempC(sensor.inHigher))/2);
 
     // ==== Fan Control ====
     // Initialize PWM pin as PWM output.
@@ -163,18 +165,19 @@ int main(void)
         float tempC_S0 = sensors.getTempC(sensor.inLower);
         float tempC_S1 = sensors.getTempC(sensor.inHigher);
         float tempC_S2 = sensors.getTempC(sensor.outRef);
-        float tempC_mean = ((tempC_S0+tempC_S1)/2);
+        tempC_avg = (MOVING_WINDOW_ALPHA * ((tempC_S0 + tempC_S1)/2)) 
+                    + ((1.0 - MOVING_WINDOW_ALPHA) * tempC_avg);
         
         // This is the actual control algorithm. 
         // For now it simply turns the heating element on when the temperature.
         // falls below a deviation defined by the user, 
         // and turns it off again once it surpasses this same deviation.
-        if (tempC_mean <= (temperature_setpoint - TEMPERATURE_DEVIATION))
+        if (tempC_avg < (DESIRED_TEMPERATURE - TEMPERATURE_DEVIATION))
         {
         digitalWrite(HEAT_RELAY_PIN, HIGH);
         relay_state = true;
         }
-        else if (tempC_mean >= (temperature_setpoint + TEMPERATURE_DEVIATION))
+        else if (tempC_avg >= (DESIRED_TEMPERATURE + TEMPERATURE_DEVIATION))
         {
         digitalWrite(HEAT_RELAY_PIN, LOW);
         relay_state = false;
@@ -206,7 +209,7 @@ int main(void)
         sensors_0["sensor00"] = tempC_S0;
         sensors_0["sensor01"] = tempC_S1;
         sensors_0["sensor02"] = tempC_S2;
-        doc["sensorMean"] = tempC_mean;
+        doc["sensorMean"] = tempC_avg;
         doc["fan"] = fan_value;
         doc["heatingElement"] = relay_state;
 
