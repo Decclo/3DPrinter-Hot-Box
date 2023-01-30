@@ -75,6 +75,9 @@ int main(void)
     bool relay_state = false;   // Bool which saves the current state of the relay.
     uint8_t fan_value = 220;    // Fan speed from 100 to 255. <100 is off.
     //const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
+    bool relay_state = false;   // Bool which saves the current state of the relay.
+    uint8_t fan_value = 220;    // Fan speed from 100 to 255. <100 is off.
+    const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
 
     // Onewire initialization
     OneWire oneWire(10);  // on pin 10 (a 4.7K pull-up resistor is necessary).
