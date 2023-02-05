@@ -75,10 +75,6 @@ int main(void)
     // ==== Local Variables ====
     bool relay_state = false;   // Bool which saves the current state of the relay.
     uint8_t fan_value = 220;    // Fan speed from 100 to 255. <100 is off.
-    //const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
-    bool relay_state = false;   // Bool which saves the current state of the relay.
-    uint8_t fan_value = 220;    // Fan speed from 100 to 255. <100 is off.
-    const double temperature_setpoint = DESIRED_TEMPERATURE + TEMPERATURE_OFFSET;
 
     // Onewire initialization
     OneWire oneWire(10);  // on pin 10 (a 4.7K pull-up resistor is necessary).
@@ -134,39 +130,46 @@ int main(void)
 
     // ==== Fan Control ====
     // Initialize PWM pin as PWM output.
-    pinMode(FAN_PWM, OUTPUT);
+    pinMode(FAN_PWM_PIN, OUTPUT);
 
     // ==== Heat Relay Control ====
     // Initialize IO pin as output.
     pinMode(HEAT_RELAY_PIN, OUTPUT);
 
-    // Give advice on how to enter debugging more, and wait a second so the 
-    // user will have chance to read it.
-    Serial << "For debugMode please press anykey.\n\n\n";
-    delay(1000);
-
     // Turn on the fan. For now we'll just keep it constant.
-    analogWrite(FAN_PWM, fan_value);
+    analogWrite(FAN_PWM_PIN, fan_value);
 
+    // ==== Setup of PWM ====
+    unsigned long currentTime = millis();
+    unsigned long previousMeasurement = currentTime;
+    unsigned long previousCycle = currentTime;
 
     // ==== PID Controller Setup ====
     ArduPID myController;
 
-    double output;
-
     double setpoint = DESIRED_TEMPERATURE;
-    double p = 2000;
-    double i = 0;
-    double d = 0;
+    double pwmDuty;
+    myController.begin(&tempC_avg, &pwmDuty, &setpoint, PID_P, PID_I, PID_D);
 
-    myController.begin(&tempC_avg, &output, &setpoint, p, i, d);
-
-    myController.setOutputLimits(0, 255);
-    //myController.setBias((1000.0 / 2.0)-1);
+    myController.setOutputLimits(0, 100);
+    myController.setBias(25.0);
     //myController.setWindUpLimits(-10, 10); // Groth bounds for the integral term to prevent integral wind-up
 
     myController.start();
 
+    // Printing a self-made crude JSON settings string.
+    Serial << "{\"T_precision\":"     << (uint8_t)TEMPERATURE_PRECISION
+            << ",\"MW_Alpha\":"       << (float)MOVING_WINDOW_ALPHA
+            << ",\"PWM_Cycle\":"      << (uint16_t)PWM_CYCLE
+            << ",\"PID_P\":"          << (float)PID_P
+            << ",\"PID_I\":"          << (float)PID_I
+            << ",\"PID_D\":"          << (float)PID_D
+            << "}" << endl << endl;
+
+    // Give advice on how to enter debugging more, and wait a second so the 
+    // user will have chance to read it.
+    Serial << "For debugMode please press anykey.\n\n\n";
+    delay(1000);
 
 
 // ##########################################
@@ -175,6 +178,7 @@ int main(void)
 
 	for (;;)
     {
+        currentTime = millis();
         // Check if the user wants to enter debugmode.
         if (Serial.available() > 0)
         {
@@ -190,31 +194,43 @@ int main(void)
         float tempC_S2 = sensors.getTempC(sensor.outRef);
         tempC_avg = (MOVING_WINDOW_ALPHA * ((tempC_S0 + tempC_S1)/2)) 
                     + ((1.0 - MOVING_WINDOW_ALPHA) * tempC_avg);
-        
-        // This is the actual control algorithm. 
-        // For now it simply turns the heating element on when the temperature.
-        // falls below a deviation defined by the user, 
-        // and turns it off again once it surpasses this same deviation.
-        if (tempC_avg < (DESIRED_TEMPERATURE - TEMPERATURE_DEVIATION))
+
+        // This is the PID. Contrary to the debug and sensor measurements, 
+        // it is set to run once every PWM_CYCLE seconds.
+        if (currentTime - previousCycle >= PWM_CYCLE)
         {
-        digitalWrite(HEAT_RELAY_PIN, HIGH);
-        relay_state = true;
-        }
-        else if (tempC_avg >= (DESIRED_TEMPERATURE + TEMPERATURE_DEVIATION))
-        {
-        digitalWrite(HEAT_RELAY_PIN, LOW);
-        relay_state = false;
+            Serial << "PID n+1 computation.\n";
+            myController.compute();
+            /*myController.debug(&Serial, "myController", 
+                PRINT_INPUT    | // Can include or comment out any of these terms to print
+                PRINT_OUTPUT   | // in the Serial plotter
+                PRINT_SETPOINT |
+                PRINT_BIAS     |
+                PRINT_P        |
+                PRINT_I        |
+                PRINT_D
+                );*/
+            
+            // Reset the timer, start next PWM cycle
+            previousCycle = currentTime;
         }
 
-        myController.compute();
-        myController.debug(&Serial, "myController", //PRINT_INPUT    | // Can include or comment out any of these terms to print
-                                                    //PRINT_OUTPUT   | // in the Serial plotter
-                                                    //PRINT_SETPOINT |
-                                                    PRINT_BIAS     //|
-                                                    //PRINT_P        |
-                                                    //PRINT_I        |
-                                                    //PRINT_D
-                                                    );
+        // Actuator control. 
+        // Use the owmDuty value from the PID to determine how much of the 
+        // PWM cycle we want to turn on the heating element.
+        Serial << "Cycle time: " << currentTime - previousCycle << 
+                ", PWM Duty: " << (PWM_CYCLE*(pwmDuty/100)) << endl;
+        if (currentTime - previousCycle < (PWM_CYCLE*(pwmDuty/100)))
+        {
+            digitalWrite(HEAT_RELAY_PIN, HIGH);
+            relay_state = true;
+        }
+        else
+        {
+            digitalWrite(HEAT_RELAY_PIN, LOW);
+            relay_state = false;
+        }
+        
 
         // Debugging and logging - Creates a JSON document and sends it over Serial.
         // This piece of code is mostly autogenerated using the ArduinoJson 
@@ -243,7 +259,7 @@ int main(void)
         sensors_0["sensor01"] = tempC_S1;
         sensors_0["sensor02"] = tempC_S2;
         doc["sensorMean"] = tempC_avg;
-        doc["fan"] = output;
+        doc["fan"] = (uint8_t)pwmDuty;
         doc["heatingElement"] = relay_state;
 
         serializeJson(doc, Serial);
@@ -350,7 +366,7 @@ void debugMode(SensorUtil *sensors, DeviceAddress devices[], uint8_t dev_element
                             Serial.println(rx_str_alt.toInt());
                             Serial.println();
                             Serial.println();
-                            analogWrite(FAN_PWM, rx_str_alt.toInt());
+                            analogWrite(FAN_PWM_PIN, rx_str_alt.toInt());
                             read_str = 0;
                         }
                     }

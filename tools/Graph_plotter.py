@@ -95,13 +95,18 @@ except:
 data_raw = [[],[],[],[],[],[],[]]
 for line in logfile:
     data = json.loads(line)
-    data_raw[0].append(data['ms']/60000)
-    data_raw[1].append(data['sensors'][0]['sensor00'])
-    data_raw[2].append(data['sensors'][0]['sensor01'])
-    data_raw[3].append(data['sensors'][0]['sensor02'])
-    data_raw[4].append(data['sensorMean'])
-    data_raw[5].append(data['fan'] / 255)
-    data_raw[6].append(data['heatingElement'])
+    try:
+        data_raw[0].append(data['ms']/60000)
+        data_raw[1].append(data['sensors'][0]['sensor00'])
+        data_raw[2].append(data['sensors'][0]['sensor01'])
+        data_raw[3].append(data['sensors'][0]['sensor02'])
+        data_raw[4].append(data['sensorMean'])
+        data_raw[5].append(data['fan'] / 255)
+        data_raw[6].append(data['heatingElement'])
+    except Exception as err:
+        print("Error reading JSON line '" + line + "'.")
+        print("Line does not conform to expected format! Skipping...")
+        pass
 
 
 if (args.moving_average != None):
