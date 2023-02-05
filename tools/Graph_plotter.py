@@ -90,23 +90,42 @@ try:
 except:
     print(Fore.YELLOW + '[WARNING] ' + Style.RESET_ALL + 'Cannot save extracted JSON to specified location')    
 
+data_settings = {
+    "t_precision": 0,
+    "mw_alpha": 0,
+    "pwm_cycle": 0,
+    "pid_p": 0,
+    "pid_i": 0,
+    "pid_d": 0
+}
 
-# Iterate through the json data and pick out the values we want
+# Iterate through the json data and pick out the values we want.
+# If this is the first line, check if it contains any settings.
 data_raw = [[],[],[],[],[],[],[]]
 for line in logfile:
     data = json.loads(line)
+    if line == logfile[0]:
+        try:
+            data_settings["t_precision"] = data['T_precision']
+            data_settings["mw_alpha"] = data['MW_Alpha']
+            data_settings["pwm_cycle"] = data['PWM_Cycle']
+            data_settings["pid_p"] = data['PID_P']
+            data_settings["pid_i"] = data['PID_I']
+            data_settings["pid_d"] = data['PID_D']
+            continue
+        except:
+            print("First JSON line of file does not contain expected settings.")
     try:
         data_raw[0].append(data['ms']/60000)
         data_raw[1].append(data['sensors'][0]['sensor00'])
         data_raw[2].append(data['sensors'][0]['sensor01'])
         data_raw[3].append(data['sensors'][0]['sensor02'])
         data_raw[4].append(data['sensorMean'])
-        data_raw[5].append(data['fan'] / 255)
+        data_raw[5].append(data['fan'] / 100)
         data_raw[6].append(data['heatingElement'])
     except Exception as err:
         print("Error reading JSON line '" + line + "'.")
         print("Line does not conform to expected format! Skipping...")
-        pass
 
 
 if (args.moving_average != None):
@@ -140,8 +159,15 @@ print(Fore.BLUE + '[INFO] ' + Style.RESET_ALL + 'The average of sensorMean is: '
 
 # Make a figure that consists of two plots, an upper for sensors, and lower for actuators
 # Let's make the upper one 3/4 of the rows, and the lower 1/4
-a1 = plt.subplot2grid((4,2),(0,0),rowspan = 3, colspan = 2)
-a2 = plt.subplot2grid((4,2),(3,0),colspan = 2)
+a1 = plt.subplot2grid((5,2),(0,0),rowspan = 3, colspan = 2)
+a2 = plt.subplot2grid((5,2),(4,0),colspan = 2)
+
+plt.gcf().text(0.1, 0.25, 'Sensor precision='+ str(data_settings["t_precision"]) 
+            + 'bit,\nSensor moving window alpha=' + str(data_settings["mw_alpha"]) 
+            + ',\nPWM cycle for relay [seconds]=' + str(data_settings["pwm_cycle"]/1000)
+            + ',\nP=' + str(data_settings["pid_p"])
+            + ', I=' + str(data_settings["pid_i"]) 
+            + ', D=' + str(data_settings["pid_d"]))
 
 
 # The upper plot contains the sensor values, as well as basic analytics
@@ -157,7 +183,7 @@ if (args.moving_average != None):     # Only draw the moving average if moving_a
         print(Fore.YELLOW + '[WARNING] ' + Style.RESET_ALL + 'Not enough data to create moving average with specified window')
 a1.plot(data_raw[0], sensorMean_average_list, color='magenta', label=('Average: ' + str(round(sensorMean_average, 2))), linestyle = 'dotted')
 a1.plot(data_raw[0], data_raw[3], color='darkgreen',  label='sensor02 (outside)')
-a1.set_title('Sensors')
+a1.set_title('Sensors and preprocessing.')
 a1.set_ylabel("Temperature [C]")
 #a1.set_ylim([-0.1, 40.1])
 a1.grid()
@@ -167,7 +193,7 @@ a1.legend()
 # The lower plot contains the actuators, scaled to a 0 to 1 range
 a2.plot(data_raw[0], data_raw[5], label='Fan (scaled to 0:1)')
 a2.plot(data_raw[0], data_raw[6], label='Heating element (digital)')
-a2.set_title('Actuators')
+a2.set_title('Actuators and Control')
 a2.set_xlabel("Minutes since start")
 a2.set_ylabel("Value")
 a2.set_ylim([-0.1, 1.1])
