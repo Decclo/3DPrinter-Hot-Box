@@ -142,7 +142,8 @@ int main(void)
     // ==== Setup of PWM ====
     unsigned long currentTime = millis();
     unsigned long previousMeasurement = currentTime;
-    unsigned long previousCycle = currentTime;
+    unsigned long previousActuatorCycle = currentTime;
+    unsigned long previousComputeCycle = currentTime;
 
     // ==== PID Controller Setup ====
     ArduPID myController;
@@ -197,7 +198,7 @@ int main(void)
 
         // This is the PID. Contrary to the debug and sensor measurements, 
         // it is set to run once every PWM_CYCLE seconds.
-        if (currentTime - previousCycle >= PWM_CYCLE)
+        if (currentTime - previousComputeCycle >= (PWM_CYCLE/4))
         {
             Serial << "PID n+1 computation.\n";
             myController.compute();
@@ -212,15 +213,19 @@ int main(void)
                 );*/
             
             // Reset the timer, start next PWM cycle
-            previousCycle = currentTime;
+            previousComputeCycle = currentTime;
         }
 
         // Actuator control. 
         // Use the owmDuty value from the PID to determine how much of the 
         // PWM cycle we want to turn on the heating element.
-        Serial << "Cycle time: " << currentTime - previousCycle << 
+        if (currentTime - previousActuatorCycle >= PWM_CYCLE)
+        {
+            previousActuatorCycle = currentTime;
+        }
+        Serial << "Cycle time: " << currentTime - previousActuatorCycle << 
                 ", PWM Duty: " << (PWM_CYCLE*(pwmDuty/100)) << endl;
-        if (currentTime - previousCycle < (PWM_CYCLE*(pwmDuty/100)))
+        if (currentTime - previousActuatorCycle < (PWM_CYCLE*(pwmDuty/100)))
         {
             digitalWrite(HEAT_RELAY_PIN, HIGH);
             relay_state = true;

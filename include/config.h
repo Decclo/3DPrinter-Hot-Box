@@ -26,12 +26,12 @@ const double DESIRED_TEMPERATURE = 27;
 const double MOVING_WINDOW_ALPHA = 0.166;
 
 // Tuning values for the PID
-const double PID_P = 300;
-const double PID_I = 0.5;
-const double PID_D = 2;
+const double PID_P = 100;
+const double PID_I = 0;
+const double PID_D = 0;
 
 // Time in milliseconds for one cycle of our self-made PWM for the relay.
-#define PWM_CYCLE               10000
+#define PWM_CYCLE               30000
 
 // Pin on which to run the PWM for the motor controller in charge of the fan.
 #define FAN_PWM_PIN             9
